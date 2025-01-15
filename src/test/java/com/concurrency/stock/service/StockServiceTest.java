@@ -291,5 +291,13 @@ public class StockServiceTest {
 /**
  * 실무에서는?
  * - 재시도가 필요하지 않은 lock은 lettuce활용
- * - ㅇ재시도가 피요한 경우에 redission 활용
+ * - 재시도가 피요한 경우에 redission 활용
+ *
+ * MySQL
+ * 이미 MySQL을 사용하고 있다면 별도의 비용 없이 처리 가능
+ * 어느 정도의 트래픽 까지는 문제없이 활용 가능
+ *
+ * Redis
+ * 활용 중인 Redis가 없다면 별도의 구축 비용 및 인프라 관리 비용 발생
+ * MySQL보다 성능 좋다.
  */
