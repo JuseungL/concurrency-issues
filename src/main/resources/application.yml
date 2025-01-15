@@ -9,7 +9,7 @@ spring:
     username: root
     password:
     hikari:
-      maximum-pool-size: 40
+      maximum-pool-size: 40  # NamedLock
 logging:
   level:
     org:

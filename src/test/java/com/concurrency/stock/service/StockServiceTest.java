@@ -1,8 +1,11 @@
 package com.concurrency.stock.service;
 
 import com.concurrency.stock.domain.Stock;
+import com.concurrency.stock.facade.LettuceLockStockFacade;
+import com.concurrency.stock.facade.NamedLockStockFacade;
+import com.concurrency.stock.facade.RedissonLockStockFacade;
 import com.concurrency.stock.repository.StockRepository;
-import lombok.RequiredArgsConstructor;
+import com.concurrency.stock.facade.OptimisticLockStockFacade;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -24,6 +27,17 @@ public class StockServiceTest {
     @Autowired
     private PessimisticLockStockService pessimisticLockStockService;
 
+    @Autowired
+    private OptimisticLockStockFacade optimisticLockStockFacade;
+
+    @Autowired
+    private NamedLockStockFacade namedLockStockFacade;
+
+    @Autowired
+    private LettuceLockStockFacade lettuceLockStockFacade;
+
+    @Autowired
+    private RedissonLockStockFacade redissonLockStockFacade;
     @Autowired
     private StockRepository stockRepository;
 
@@ -158,4 +172,124 @@ public class StockServiceTest {
         assertEquals(0, stock.getQuantity());
     }
 
+    @Test
+    public void 동시에_100개의_요청_optimistic_lock() throws InterruptedException {
+        int threadCount = 100;
+        ExecutorService executorService = Executors.newFixedThreadPool(32);
+        CountDownLatch latch = new CountDownLatch(threadCount);
+
+        for (int i = 0; i < threadCount; i++) {
+            executorService.submit(() -> {
+                try {
+                    optimisticLockStockFacade.decrease(1L, 1L);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        latch.await();
+
+        Stock stock = stockRepository.findById(1L).orElseThrow();
+        assertEquals(0, stock.getQuantity());
+    }
+    /**
+     * 실질적으로 DB에 락을 잡지 않아서 비관적 락 보다 성능적 이점이 있다.
+     * 그러나 업데이트 실패 시를 고려한 Facade로직을 개발자가 직접 추가적으로 작성해주어야하며
+     * 실제로 충돌이 많이 일어날 경우 비관적 락보다 불리하기 때문에 충돌이 많이 발생하지 않는 경우 사용하면 좋을 듯 하다.
+     */
+
+    @Test
+    public void 동시에_100개의_요청_named_lock() throws InterruptedException {
+        int threadCount = 100;
+        ExecutorService executorService = Executors.newFixedThreadPool(32);
+        CountDownLatch latch = new CountDownLatch(threadCount);
+
+        for (int i = 0; i < threadCount; i++) {
+            executorService.submit(() -> {
+                try {
+                    namedLockStockFacade.decrease(1L, 1L);
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        latch.await();
+
+        Stock stock = stockRepository.findById(1L).orElseThrow();
+        assertEquals(0, stock.getQuantity());
+    }
+    /**
+     * 주로 분산락을 구현할때 사용
+     * 비관적 락은 타임 아웃 구현하기 힘들지만 NamedLock은 유리
+     *
+     * 그러나 세션관리, 락 해제 등을 고려해야하므로 주의가 필요하다.
+     */
+
+    @Test
+    public void 동시에_100개의_요청_lettuce() throws InterruptedException {
+        int threadCount = 100;
+        ExecutorService executorService = Executors.newFixedThreadPool(32);
+        CountDownLatch latch = new CountDownLatch(threadCount);
+
+        for (int i = 0; i < threadCount; i++) {
+            executorService.submit(() -> {
+                try {
+                    lettuceLockStockFacade.decrease(1L, 1L);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        latch.await();
+
+        Stock stock = stockRepository.findById(1L).orElseThrow();
+        assertEquals(0, stock.getQuantity());
+    }
+
+    /**
+     * 구현 간단
+     * lettuce가 기본 라이브러리라 별도의 라이브러리 가져올 필요없다.
+     * spin lock 방식이라 동시에 많은 스레드가 lock 획득 대기 상태라면 redis에 부하가 갈 수 있다.
+     */
+
+    @Test
+    public void 동시에_100개의_요청_redission() throws InterruptedException {
+        int threadCount = 100;
+        ExecutorService executorService = Executors.newFixedThreadPool(32);
+        CountDownLatch latch = new CountDownLatch(threadCount);
+
+        for (int i = 0; i < threadCount; i++) {
+            executorService.submit(() -> {
+                try {
+                    redissonLockStockFacade.decrease(1L, 1L);
+                } finally {
+                    latch.countDown();
+                }
+            });
+        }
+
+        latch.await();
+
+        Stock stock = stockRepository.findById(1L).orElseThrow();
+        assertEquals(0, stock.getQuantity());
+    }
+    /**
+     * 락 획득 재시도를 기본으로 제공한다.
+     * Pub/sub방식이라 lettuce보다 redis에 부하가 낮다.
+     * 별도의 라이브러리를 사용해야하며
+     * lock을 라이브러리 차원에서 제공해주기 때문에 사용방법을 공부해야한다.
+     */
 }
+
+/**
+ * 실무에서는?
+ * - 재시도가 필요하지 않은 lock은 lettuce활용
+ * - ㅇ재시도가 피요한 경우에 redission 활용
+ */

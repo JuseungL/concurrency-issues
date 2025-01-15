@@ -18,6 +18,9 @@ public class Stock {
 
     private Long quantity;
 
+    @Version
+    private Long version;
+
     @Builder
     public Stock(Long productId, Long quantity) {
         this.productId = productId;
